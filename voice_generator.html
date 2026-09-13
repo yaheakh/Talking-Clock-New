@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8" />
+<title>مولّد أصوات الساعة الناطقة</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    background: #0a0612; color: #eee; font-family: -apple-system, "Segoe UI", Tahoma, sans-serif;
+    max-width: 760px; margin: 0 auto; padding: 24px 20px 60px;
+  }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  p.sub { color: #93a4c9; font-size: 14px; margin-top: 0; }
+  .card {
+    background: #14101f; border: 1px solid #2a2440; border-radius: 12px;
+    padding: 18px; margin: 18px 0;
+  }
+  label { display: block; font-size: 13px; color: #93a4c9; margin-bottom: 6px; }
+  input[type=text], input[type=password], select {
+    width: 100%; box-sizing: border-box; background: #0e0a18; color: #fff;
+    border: 1px solid #33304a; border-radius: 8px; padding: 10px 12px; font-size: 14px;
+    margin-bottom: 14px;
+  }
+  .row { display: flex; gap: 14px; }
+  .row > div { flex: 1; }
+  button {
+    background: #7c5cff; color: #fff; border: none; border-radius: 8px;
+    padding: 12px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+  }
+  button.secondary { background: #2a2440; }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+  #log {
+    background: #0e0a18; border-radius: 8px; padding: 12px; margin-top: 14px;
+    font-family: monospace; font-size: 12px; max-height: 260px; overflow-y: auto;
+    white-space: pre-wrap; line-height: 1.6;
+  }
+  .ok { color: #6ee7a0; }
+  .err { color: #ff8080; }
+  .progress-outer { background: #0e0a18; border-radius: 6px; height: 10px; overflow: hidden; margin-top: 12px; }
+  .progress-inner { background: #7c5cff; height: 100%; width: 0%; transition: width .2s; }
+  .note { font-size: 12px; color: #7d7a92; margin-top: 10px; line-height: 1.7; }
+  a { color: #a99bff; }
+</style>
+</head>
+<body>
+
+<h1>🔊 مولّد أصوات الساعة الناطقة</h1>
+<p class="sub">يولّد كل مقاطع الصوت (الوقت + عناوين التذكيرات الجاهزة) ويحزمها في ملف ZIP جاهز للاستخدام مباشرة داخل مشروع Talking Clock — كل شيء يعمل من متصفحك، لا شيء يُرسَل لأي مكان سوى خوادم Google مباشرة.</p>
+
+<div class="card">
+  <label>مفتاح Google Cloud Text-to-Speech API (يُستخدم فقط في هذا المتصفح، ولا يُحفظ أو يُرسَل لأي مكان آخر)</label>
+  <input type="password" id="apiKey" placeholder="AIza..." />
+
+  <div class="row">
+    <div>
+      <label>الصوت الإنجليزي</label>
+      <select id="voiceEn">
+        <option value="en-US-Neural2-D">en-US-Neural2-D (رجل، طبيعي)</option>
+        <option value="en-US-Neural2-C">en-US-Neural2-C (امرأة، طبيعي)</option>
+        <option value="en-US-Wavenet-D">en-US-Wavenet-D (رجل)</option>
+        <option value="en-US-Wavenet-F">en-US-Wavenet-F (امرأة)</option>
+      </select>
+    </div>
+    <div>
+      <label>الصوت العربي</label>
+      <select id="voiceAr">
+        <option value="ar-XA-Wavenet-B">ar-XA-Wavenet-B (رجل)</option>
+        <option value="ar-XA-Wavenet-C">ar-XA-Wavenet-C (رجل)</option>
+        <option value="ar-XA-Wavenet-A">ar-XA-Wavenet-A (امرأة)</option>
+        <option value="ar-XA-Wavenet-D">ar-XA-Wavenet-D (امرأة)</option>
+      </select>
+    </div>
+  </div>
+
+  <div class="row">
+    <button id="testBtn">🔈 اختبار سريع (كلمة واحدة)</button>
+    <button id="genBtn">⚡ توليد كل الأصوات وتنزيلها (ZIP)</button>
+  </div>
+
+  <div class="progress-outer"><div class="progress-inner" id="bar"></div></div>
+  <div id="log"></div>
+
+  <p class="note">
+    كيف تحصل على مفتاح مجاني: افتح
+    <a href="https://console.cloud.google.com/" target="_blank">Google Cloud Console</a>
+    → أنشئ مشروعًا جديدًا → فعّل "Cloud Text-to-Speech API" من مكتبة الـ APIs → من صفحة
+    "Credentials" أنشئ "API key". يحتاج المشروع تفعيل الفوترة (Billing) حتى لو لم
+    تُحاسَب فعليًا — الاستهلاك هنا (نحو 60 كلمة قصيرة) أقل بكثير جدًا من الحد
+    المجاني الشهري (4 ملايين حرف/شهر للأصوات القياسية، مليون حرف لأصوات Wavenet/Neural2).
+  </p>
+</div>
+
+<script>
+// This word/id list MUST stay identical to lib/local_voice.dart and
+// lib/reminder_presets.dart in the Flutter project — the app looks up
+// clips by exactly these filenames.
+const EN_WORDS = {
+  zero:"zero", one:"one", two:"two", three:"three", four:"four", five:"five",
+  six:"six", seven:"seven", eight:"eight", nine:"nine", ten:"ten",
+  eleven:"eleven", twelve:"twelve", thirteen:"thirteen", fourteen:"fourteen",
+  fifteen:"fifteen", sixteen:"sixteen", seventeen:"seventeen",
+  eighteen:"eighteen", nineteen:"nineteen", twenty:"twenty", thirty:"thirty",
+  forty:"forty", fifty:"fifty", oh:"oh", oclock:"o'clock", am:"A M", pm:"P M",
+  the_time_is:"The time is", in:"in", minute:"minute", minutes:"minutes",
+  preset_medicine:"Time for your medicine", preset_prayer:"Time for prayer",
+  preset_meeting:"Time for your meeting", preset_wakeup:"Time to wake up",
+  preset_doctor:"Time for your doctor appointment", preset_breakfast:"Time for breakfast",
+  preset_lunch:"Time for lunch", preset_dinner:"Time for dinner",
+  preset_exercise:"Time to exercise", preset_coffee:"Time for a coffee break",
+  preset_rest:"Time to rest", preset_sleep:"Time to sleep",
+  preset_call:"Don't forget your important call", preset_water:"Don't forget to drink water",
+};
+
+const AR_WORDS = {
+  d0:"صفر", d1:"واحد", d2:"اثنان", d3:"ثلاثة", d4:"أربعة", d5:"خمسة",
+  d6:"ستة", d7:"سبعة", d8:"ثمانية", d9:"تسعة",
+  alsaa:"الساعة الآن", wa:"و", sabahan:"صباحاً", masaan:"مساءً",
+  qabl:"بعد", daqiqa:"دقيقة",
+  preset_medicine:"حان موعد الدواء", preset_prayer:"حان وقت الصلاة",
+  preset_meeting:"حان موعد الاجتماع", preset_wakeup:"حان وقت الاستيقاظ",
+  preset_doctor:"حان موعد الطبيب", preset_breakfast:"حان وقت الفطور",
+  preset_lunch:"حان وقت الغداء", preset_dinner:"حان وقت العشاء",
+  preset_exercise:"حان وقت التمرين", preset_coffee:"حان وقت استراحة القهوة",
+  preset_rest:"حان وقت الراحة", preset_sleep:"حان وقت النوم",
+  preset_call:"لا تنسَ الاتصال المهم", preset_water:"لا تنسَ شرب الماء",
+};
+
+const logEl = document.getElementById('log');
+const bar = document.getElementById('bar');
+function log(msg, cls) {
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  line.textContent = msg;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+async function synth(apiKey, text, languageCode, voiceName) {
+  const res = await fetch(`https://texttospeech.googleapis.com/v1/text:synthesize?key=${apiKey}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      input: { text },
+      voice: { languageCode, name: voiceName },
+      audioConfig: { audioEncoding: 'MP3', speakingRate: 0.95 },
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`HTTP ${res.status}: ${body.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  return data.audioContent; // base64 mp3
+}
+
+function base64ToBytes(b64) {
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+document.getElementById('testBtn').onclick = async () => {
+  const apiKey = document.getElementById('apiKey').value.trim();
+  if (!apiKey) { log('❌ أدخل مفتاح API أولاً', 'err'); return; }
+  log('جارٍ اختبار الصوت الإنجليزي والعربي...');
+  try {
+    await synth(apiKey, 'This is a test', 'en-US', document.getElementById('voiceEn').value);
+    log('✅ الصوت الإنجليزي يعمل', 'ok');
+  } catch (e) { log('❌ فشل الصوت الإنجليزي: ' + e.message, 'err'); }
+  try {
+    await synth(apiKey, 'هذا اختبار', 'ar-XA', document.getElementById('voiceAr').value);
+    log('✅ الصوت العربي يعمل', 'ok');
+  } catch (e) { log('❌ فشل الصوت العربي: ' + e.message, 'err'); }
+};
+
+document.getElementById('genBtn').onclick = async () => {
+  const apiKey = document.getElementById('apiKey').value.trim();
+  if (!apiKey) { log('❌ أدخل مفتاح API أولاً', 'err'); return; }
+  const voiceEn = document.getElementById('voiceEn').value;
+  const voiceAr = document.getElementById('voiceAr').value;
+
+  document.getElementById('genBtn').disabled = true;
+  document.getElementById('testBtn').disabled = true;
+  logEl.innerHTML = '';
+
+  const zip = new JSZip();
+  const jobs = [
+    ...Object.entries(EN_WORDS).map(([id, text]) => ({ id, text, lang: 'en', languageCode: 'en-US', voice: voiceEn })),
+    ...Object.entries(AR_WORDS).map(([id, text]) => ({ id, text, lang: 'ar', languageCode: 'ar-XA', voice: voiceAr })),
+  ];
+
+  let done = 0;
+  const failed = [];
+
+  for (const job of jobs) {
+    try {
+      const b64 = await synth(apiKey, job.text, job.languageCode, job.voice);
+      zip.file(`assets/audio/${job.lang}/${job.id}.mp3`, base64ToBytes(b64));
+      log(`✅ ${job.lang}/${job.id}`, 'ok');
+    } catch (e) {
+      failed.push(job);
+      log(`❌ ${job.lang}/${job.id}: ${e.message}`, 'err');
+    }
+    done++;
+    bar.style.width = Math.round((done / jobs.length) * 100) + '%';
+    // Small delay to stay comfortably under the API's per-second rate limit.
+    await new Promise(r => setTimeout(r, 120));
+  }
+
+  if (failed.length) {
+    log(`\n⚠ فشل توليد ${failed.length} مقطع/مقاطع. أعد الضغط على الزر لإعادة المحاولة بعد قليل — الملفات الناجحة محفوظة في نفس الجولة فقط، لذا كرر العملية كاملة إن لزم.`, 'err');
+  } else {
+    log('\n🎉 تم توليد كل المقاطع بنجاح!', 'ok');
+  }
+
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'voice-assets.zip';
+  a.click();
+  log('\n📦 تم تنزيل voice-assets.zip — فُك ضغطه وانسخ مجلد "assets" بالكامل إلى داخل مجلد مشروع Talking-Clock-New-main (بجانب pubspec.yaml).');
+
+  document.getElementById('genBtn').disabled = false;
+  document.getElementById('testBtn').disabled = false;
+};
+</script>
+
+</body>
+</html>

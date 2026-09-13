@@ -1,0 +1,32 @@
+name: talking_clock_flutter
+description: "A full-screen talking clock with custom reminders, Arabic support, and a Jordan holiday calendar — native Flutter rewrite."
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.3.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  shared_preferences: ^2.2.3
+  flutter_tts: ^4.0.2
+  flutter_local_notifications: ^17.2.2
+  intl: ^0.19.0
+  wakelock_plus: ^1.2.5
+  timezone: ^0.9.4
+  flutter_timezone: ^5.1.0
+  audioplayers: ^6.1.0
+  flutter_background_service: ^5.0.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/audio/en/
+    - assets/audio/ar/

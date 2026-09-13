@@ -1,0 +1,75 @@
+name: Build Flutter APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch: {}   # lets you also trigger it manually from the Actions tab
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Write android/local.properties
+        working-directory: android
+        run: echo "flutter.sdk=$FLUTTER_ROOT" > local.properties
+
+      - name: Find a compatible Gradle version (9.5.x — new enough for Flutter, old enough for AGP 8.11.1)
+        id: findgradle
+        run: |
+          VERSION=$(curl -s https://services.gradle.org/versions/all | python3 -c "import json,sys; data=json.load(sys.stdin); c=[v['version'] for v in data if v['version'].startswith('9.5') and '-' not in v['version'] and not v.get('broken') and not v.get('snapshot') and not v.get('nightly') and not v.get('releaseNightly')]; c.sort(key=lambda s: [int(p) for p in s.split('.')]); print(c[-1] if c else '')")
+          if [ -z "$VERSION" ]; then
+            echo "No 9.5.x release found on services.gradle.org — falling back to '9.5'"
+            VERSION="9.5"
+          fi
+          echo "Resolved Gradle version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ steps.findgradle.outputs.version }}
+
+      - name: Generate Gradle wrapper (matching the installed version)
+        working-directory: android
+        run: gradle wrapper
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Set up Python (for voice-clip generation)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install ffmpeg + edge-tts
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y ffmpeg
+          pip install edge-tts
+
+      - name: Generate local voice clips
+        run: python3 generate_voice_clips.py
+
+      - name: Build debug APK
+        run: flutter build apk --debug
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: talking-clock-flutter-debug-apk
+          path: build/app/outputs/flutter-apk/app-debug.apk
